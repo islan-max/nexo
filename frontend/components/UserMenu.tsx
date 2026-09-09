@@ -32,7 +32,7 @@ function UserAvatar({ compact, user }: { compact: boolean; user: User | null }) 
   }
 
   return (
-    <span className={`${sizeClass} flex shrink-0 items-center justify-center rounded-app bg-leaf text-sm font-black text-white shadow-sm`} aria-hidden>
+    <span className={`${sizeClass} flex shrink-0 items-center justify-center is-selected rounded-app text-sm font-black shadow-sm`} aria-hidden>
       {initials}
     </span>
   );

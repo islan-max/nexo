@@ -17,6 +17,20 @@ TEST_DB_URL = os.getenv("TEST_DATABASE_URL")
 requires_db = pytest.mark.skipif(not TEST_DB_URL, reason="TEST_DATABASE_URL is not configured")
 
 
+def pytest_report_header(config):
+    """Deixa explicito, no topo da saida, que a integracao nao vai rodar.
+
+    Sem isto a suite fica verde sem ter executado os testes de integracao, o que
+    passa uma sensacao de cobertura que nao existe.
+    """
+    if TEST_DB_URL:
+        return "banco de teste: configurado — suíte completa"
+    return (
+        "banco de teste: AUSENTE — os testes de integração serão pulados. "
+        "Defina TEST_DATABASE_URL para executá-los."
+    )
+
+
 def reset_rate_limits() -> None:
     storage = getattr(getattr(limiter, "_limiter", None), "storage", None)
     if storage and hasattr(storage, "reset"):

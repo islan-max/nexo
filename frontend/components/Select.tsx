@@ -202,7 +202,7 @@ export function Select({
               type="button"
               className={`interactive-list-item flex min-h-10 w-full items-center gap-2 rounded-app px-3 py-2 text-left text-sm transition ${
                 highlighted
-                  ? "bg-leaf text-white"
+                  ? "is-selected"
                   : selected
                   ? "bg-leaf/12 text-ink ring-1 ring-leaf/35"
                   : "text-ink hover:bg-leaf/10"

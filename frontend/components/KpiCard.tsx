@@ -3,6 +3,7 @@ type KpiCardProps = {
   value: string;
   note?: string;
   tone?: "neutral" | "good" | "warning" | "danger";
+  loading?: boolean;
 };
 
 const toneClass = {
@@ -19,7 +20,17 @@ const markerClass = {
   danger: "bg-danger"
 };
 
-export function KpiCard({ label, value, note, tone = "neutral" }: KpiCardProps) {
+export function KpiCard({ label, value, note, tone = "neutral", loading = false }: KpiCardProps) {
+  if (loading) {
+    return (
+      <section aria-busy="true" aria-label={`Carregando ${label}`} className="app-card p-4">
+        <span aria-hidden className="skeleton-shimmer block h-3 w-24 rounded" />
+        <span aria-hidden className="skeleton-shimmer mt-3 block h-7 w-32 rounded" />
+        <span className="sr-only">Carregando {label}</span>
+      </section>
+    );
+  }
+
   return (
     <section 
       className={`interactive-card animate-rise-in relative overflow-hidden rounded-app border bg-gradient-to-br p-4 shadow-soft select-none ${toneClass[tone]}`}

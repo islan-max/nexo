@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { BarChart3, FileUp, Layers3, PieChart as PieIcon, ReceiptText, Wallet } from "@/components/icons";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import dynamic from "next/dynamic";
+import { ChartSkeleton } from "@/components/charts/ChartSkeleton";
+import { colorForPaymentMethod, getChartTheme, CATEGORICAL_COLORS } from "@/components/charts/chartTheme";
 import { ActionRecommendationCard } from "@/components/ActionRecommendationCard";
 import { EmptyState } from "@/components/EmptyState";
 import { KpiCard } from "@/components/KpiCard";
@@ -15,11 +17,26 @@ import { formatBRL } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 import type { Bootstrap } from "@/types/finance";
 
+// O recharts responde por ~140 kB do bundle. Como o dashboard e a primeira tela
+// depois do login, ele sai do carregamento inicial e chega junto com os dados.
+// ssr:false porque a biblioteca mede o container para dimensionar o desenho.
+const CategoryPieChart = dynamic(() => import("@/components/charts/CategoryPieChart"), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={256} label="Carregando gráfico de categorias" />
+});
+
+const PaymentBarChart = dynamic(() => import("@/components/charts/PaymentBarChart"), {
+  ssr: false,
+  loading: () => <ChartSkeleton height={224} label="Carregando gráfico de formas de pagamento" />
+});
+
 type SummaryHomeProps = {
   data: Bootstrap | null;
   chartsReady: boolean;
   onEditPlanning: () => void;
 };
+
+/** Sem dados carregados ainda: os cards mostram esqueleto, não zeros. */
 
 const statusTone = {
   green: "good",
@@ -27,47 +44,32 @@ const statusTone = {
   red: "danger"
 } as const;
 
-const paymentMethodColors: Record<string, string> = {
-  "pix": "#8B5CF6",
-  "debit": "#06B6D4",
-  "credit": "#EC4899",
-  "cash": "#10B981",
-  "transfer": "#F59E0B"
-};
-
 export function SummaryHome({ data, chartsReady, onEditPlanning }: SummaryHomeProps) {
   const { effectiveTheme } = useTheme();
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activePayment, setActivePayment] = useState<string | null>(null);
   const dashboard = data?.dashboard;
+  const loading = !data;
   const tone = dashboard ? statusTone[dashboard.rhythmStatus] : "neutral";
-  const pieData = (dashboard?.categoryBreakdown || []).map((item) => ({
+  const pieData = (dashboard?.categoryBreakdown || []).map((item, index) => ({
     name: item.name || "Sem categoria",
     total: Number(item.total || 0),
-    color: item.color || "#14B8A6"
+    color: item.color || CATEGORICAL_COLORS[index % CATEGORICAL_COLORS.length]
   }));
   
-  const paymentData = (dashboard?.paymentMethodBreakdown || []).map((item) => ({
+  const paymentData = (dashboard?.paymentMethodBreakdown || []).map((item, index) => ({
     payment_method: item.payment_method || "Outro",
     total: Number(item.total || 0),
-    color: paymentMethodColors[item.payment_method?.toLowerCase() || ""] || "#6B7280"
+    color: colorForPaymentMethod(item.payment_method || "", index)
   }));
   
   const hasBudget = Boolean(data?.budget.items.length);
-  const chartGrid = effectiveTheme === "dark" ? "#2D3E55" : "#DDE7F0";
-  const chartText = effectiveTheme === "dark" ? "#96A4B8" : "#6D7B8D";
-  const chartStroke = effectiveTheme === "dark" ? "#E8EFF7" : "#102033";
-  const tooltipStyle = {
-    backgroundColor: effectiveTheme === "dark" ? "#0E1B2D" : "#FFFFFF",
-    border: `1px solid ${chartGrid}`,
-    borderRadius: 12,
-    color: effectiveTheme === "dark" ? "#E8EFF7" : "#102033"
-  };
+  const chartTheme = getChartTheme(effectiveTheme === "dark");
 
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <MainInsightCard userName={data?.user.name} dashboard={dashboard} alert={data?.alerts[0]} />
+        <MainInsightCard alert={data?.alerts[0]} dashboard={dashboard} loading={loading} userName={data?.user.name} />
         <div className="grid gap-4">
           <QuickSettingsCard settings={data?.settings || null} onEdit={onEditPlanning} />
           <ActionRecommendationCard dashboard={dashboard} alerts={data?.alerts || []} hasBudget={hasBudget} transactions={data?.transactions || []} />
@@ -75,10 +77,10 @@ export function SummaryHome({ data, chartsReady, onEditPlanning }: SummaryHomePr
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Salário do mês" value={formatBRL(dashboard?.salaryBase || 0)} note={`${dashboard?.salaryCommittedPercent || 0}% comprometido`} />
-        <KpiCard label="Entradas" value={formatBRL(dashboard?.inflow || 0)} tone="good" />
-        <KpiCard label="Saídas" value={formatBRL(dashboard?.outflow || 0)} tone={dashboard && dashboard.outflow > dashboard.salaryBase ? "danger" : "neutral"} />
-        <KpiCard label="Score Trevo" value={String(data?.score.score || "--")} note={data?.score.label} tone={tone} />
+        <KpiCard loading={loading} label="Salário do mês" value={formatBRL(dashboard?.salaryBase || 0)} note={`${dashboard?.salaryCommittedPercent || 0}% comprometido`} />
+        <KpiCard loading={loading} label="Entradas" value={formatBRL(dashboard?.inflow || 0)} tone="good" />
+        <KpiCard loading={loading} label="Saídas" value={formatBRL(dashboard?.outflow || 0)} tone={dashboard && dashboard.outflow > dashboard.salaryBase ? "danger" : "neutral"} />
+        <KpiCard loading={loading} label="Score Trevo" value={String(data?.score.score || "--")} note={data?.score.label} tone={tone} />
       </div>
 
       <section className="app-card p-4">
@@ -91,35 +93,15 @@ export function SummaryHome({ data, chartsReady, onEditPlanning }: SummaryHomePr
           <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
             <div className="h-64">
               {chartsReady ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="total"
-                      nameKey="name"
-                      innerRadius={48}
-                      outerRadius={88}
-                      paddingAngle={3}
-                      isAnimationActive
-                      animationDuration={650}
-                      animationEasing="ease-out"
-                      onMouseEnter={(_: unknown, index: number) => setActiveCategory(pieData[index]?.name || null)}
-                      onMouseLeave={() => setActiveCategory(null)}
-                    >
-                      {pieData.map((item) => (
-                        <Cell
-                          key={item.name}
-                          fill={item.color}
-                          opacity={!activeCategory || activeCategory === item.name ? 1 : 0.38}
-                          stroke={activeCategory === item.name ? chartStroke : "transparent"}
-                          strokeWidth={activeCategory === item.name ? 2 : 0}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={tooltipStyle} formatter={(value) => formatBRL(Number(value))} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : null}
+                <CategoryPieChart
+                  activeCategory={activeCategory}
+                  data={pieData}
+                  onActiveChange={setActiveCategory}
+                  theme={chartTheme}
+                />
+              ) : (
+                <ChartSkeleton height={256} label="Carregando gráfico de categorias" />
+              )}
             </div>
             <div className="space-y-2">
               {pieData.slice(0, 6).map((item) => (
@@ -160,47 +142,15 @@ export function SummaryHome({ data, chartsReady, onEditPlanning }: SummaryHomePr
             <div className="space-y-4">
               <div className="h-56">
                 {chartsReady ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={paymentData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                      <XAxis 
-                        dataKey="payment_method" 
-                        tickLine={false} 
-                        axisLine={false}
-                        angle={-45}
-                        textAnchor="end"
-                        height={80}
-                        interval={0}
-                        tick={{ fontSize: 12, fill: chartText }}
-                      />
-                      <YAxis 
-                        width={50} 
-                        tickFormatter={(value) => `R$${Number(value) / 1000}k`} 
-                        tickLine={false} 
-                        axisLine={false}
-                        tick={{ fill: chartText }}
-                      />
-                      <Tooltip 
-                        formatter={(value) => formatBRL(Number(value))}
-                        contentStyle={tooltipStyle}
-                      />
-                      <Bar
-                        dataKey="total"
-                        radius={[10, 10, 0, 0]}
-                        activeBar={{ fillOpacity: 0.88, stroke: chartStroke, strokeWidth: 2 }}
-                        isAnimationActive
-                        animationDuration={650}
-                        animationEasing="ease-out"
-                        onMouseEnter={(_: unknown, index: number) => setActivePayment(paymentData[index]?.payment_method || null)}
-                        onMouseLeave={() => setActivePayment(null)}
-                      >
-                        {paymentData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} opacity={!activePayment || activePayment === entry.payment_method ? 1 : 0.42} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : null}
+                  <PaymentBarChart
+                    activePayment={activePayment}
+                    data={paymentData}
+                    onActiveChange={setActivePayment}
+                    theme={chartTheme}
+                  />
+                ) : (
+                  <ChartSkeleton height={224} label="Carregando gráfico de formas de pagamento" />
+                )}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {paymentData.map((item) => (

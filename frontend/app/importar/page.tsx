@@ -115,7 +115,7 @@ function Stepper({ activeIndex }: { activeIndex: number }) {
             }`}
             key={step.key}
           >
-            <span className={`mb-2 flex h-7 w-7 items-center justify-center rounded-app text-xs font-black ${done ? "bg-success text-white" : active ? "bg-leaf text-white" : "bg-ink/5 text-muted"}`}>
+            <span className={`mb-2 flex h-7 w-7 items-center justify-center rounded-app text-xs font-black ${done ? "bg-success text-white" : active ? "is-selected" : "bg-ink/5 text-muted"}`}>
               {done ? <Check size={14} aria-hidden /> : index + 1}
             </span>
             <span className="block font-semibold">{step.label}</span>

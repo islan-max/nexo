@@ -34,6 +34,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Arquivos de código ignorados pelo .gitignore
+        run: bash scripts/check-ignored-files.sh
       - run: python -m ruff check .
       - run: python -m bandit -r app -ll -q
       - name: Run tests
@@ -43,7 +45,25 @@ jobs:
           JWT_SECRET_KEY: ci-secret-key-for-testing-only-32chars
           ENVIRONMENT: testing
           ALLOWED_ORIGINS: http://localhost:8000
-        run: pytest tests/ -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=60
+        # -W error::pytest.PytestUnraisableExceptionWarning nao basta: o que
+        # importa aqui e que nenhum teste seja pulado. Com Postgres no
+        # service, um skip indica configuracao quebrada e deve falhar o build.
+        run: pytest tests/ -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=60 -p no:randomly --strict-markers -rs
+      - name: Falhar se algum teste foi pulado
+        env:
+          DATABASE_URL: postgresql://ritmo:ritmo_test@localhost:5432/ritmo_test
+          TEST_DATABASE_URL: postgresql://ritmo:ritmo_test@localhost:5432/ritmo_test
+          JWT_SECRET_KEY: ci-secret-key-for-testing-only-32chars
+          ENVIRONMENT: testing
+          ALLOWED_ORIGINS: http://localhost:8000
+        run: |
+          skipped=$(pytest tests/ -q -rs 2>&1 | grep -cE '^SKIPPED' || true)
+          if [ "$skipped" -gt 0 ]; then
+            echo "::error::$skipped teste(s) pulado(s) com banco disponivel"
+            pytest tests/ -q -rs 2>&1 | grep -E '^SKIPPED' || true
+            exit 1
+          fi
+          echo "Nenhum teste pulado."
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

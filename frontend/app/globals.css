@@ -33,6 +33,12 @@
   --hero-to: #1F8049;
   --hero-fg: 255 255 255;
 
+  /* Superfície de item selecionado (nav ativa, passo atual, opção escolhida).
+     `bg-leaf` com texto branco dava 3.45:1 no claro e 2.48:1 no escuro — os
+     dois abaixo de AA. Aqui o par fundo/texto é escolhido por tema. */
+  --selected-bg: #1F8049;
+  --selected-fg: #FFFFFF;
+
   --shadow-ink: 16 40 26;
   --shadow-soft-opacity: 0.08;
   --shadow-lift-opacity: 0.15;
@@ -87,6 +93,9 @@
   --hero-via: #0F1A15;
   --hero-to: #1B4732;
   --hero-fg: 255 255 255;
+
+  --selected-bg: #4FB877;
+  --selected-fg: #0C0E10;
 
   --shadow-ink: 0 0 0;
   --shadow-soft-opacity: 0.32;
@@ -596,3 +605,11 @@ input[type="radio"] {
   outline: 2px solid rgb(var(--hero-fg) / 0.9);
   outline-offset: 2px;
 }
+
+
+/* Item selecionado: contraste AA garantido nos dois temas. */
+.is-selected {
+  background-color: var(--selected-bg);
+  color: var(--selected-fg);
+}
+.is-selected svg { color: inherit; }

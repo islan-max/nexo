@@ -18,6 +18,9 @@ type MainInsightCardProps = {
   userName?: string;
   dashboard?: Dashboard | null;
   alert?: Alert;
+  /** Enquanto true, mostra esqueleto em vez de zeros — R$ 0,00 durante o
+      carregamento é indistinguível de uma conta realmente vazia. */
+  loading?: boolean;
 };
 
 type MiniMetricProps = {
@@ -34,9 +37,39 @@ function MiniMetric({ label, value }: MiniMetricProps) {
   );
 }
 
-export function MainInsightCard({ userName, dashboard, alert }: MainInsightCardProps) {
+/** Barra clara sobre o fundo escuro do hero. */
+function HeroBar({ className }: { className: string }) {
+  return <span aria-hidden className={`block animate-pulse rounded bg-white/25 ${className}`} />;
+}
+
+export function MainInsightCard({ userName, dashboard, alert, loading = false }: MainInsightCardProps) {
   const status = dashboard?.rhythmStatus || "green";
   const Icon = status === "green" ? CheckCircle2 : status === "yellow" ? AlertTriangle : TrendingDown;
+
+  if (loading) {
+    return (
+      <section
+        aria-busy="true"
+        aria-label="Carregando o resumo do mês"
+        className="hero-card animate-rise-in relative overflow-hidden rounded-app border border-white/15 p-5 shadow-lift"
+      >
+        <HeroBar className="h-4 w-32" />
+        <HeroBar className="mt-3 h-6 w-64 max-w-full" />
+        <div className="mt-8">
+          <HeroBar className="h-4 w-40" />
+          <HeroBar className="mt-3 h-12 w-56 max-w-full" />
+          <HeroBar className="mt-3 h-4 w-72 max-w-full" />
+        </div>
+        <HeroBar className="mt-5 h-14 w-full" />
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[0, 1, 2, 3].map((index) => (
+            <HeroBar className="h-16 w-full" key={index} />
+          ))}
+        </div>
+        <span className="sr-only">Carregando o resumo do mês</span>
+      </section>
+    );
+  }
 
   return (
     <section className="hero-card animate-rise-in relative overflow-hidden rounded-app border border-white/15 p-5 shadow-lift">

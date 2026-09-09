@@ -80,18 +80,18 @@ export default function ConfiguracoesPage() {
                 <button
                   aria-pressed={active}
                   className={`focus-ring flex items-center gap-3 rounded-app border p-3 text-left transition ${
-                    active ? "border-leaf bg-leaf text-white shadow-soft" : "theme-control text-ink hover:border-leaf/50"
+                    active ? "is-selected border-leaf shadow-soft" : "theme-control text-ink hover:border-leaf/50"
                   }`}
                   key={option.value}
                   onClick={() => setPreference(option.value)}
                   type="button"
                 >
-                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-app ${active ? "bg-white/20 text-white" : "bg-ink/5 text-ink"}`}>
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-app ${active ? "bg-black/15 text-current" : "bg-ink/5 text-ink"}`}>
                     <Icon size={18} aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
                     <strong className="block">{option.label}</strong>
-                    <small className={active ? "text-white/85" : "text-muted"}>{option.description}</small>
+                    <small className={active ? "text-current opacity-80" : "text-muted"}>{option.description}</small>
                   </span>
                   {active ? <Check className="shrink-0" size={18} aria-hidden /> : null}
                 </button>

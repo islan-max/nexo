@@ -21,6 +21,7 @@ from uuid import UUID
 
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import encoders as fastapi_encoders
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -167,6 +168,13 @@ def audit_log(event: str, user_id: str | None, details: dict | None = None) -> N
     }
     logger.info(json.dumps(entry))
 
+
+# Dinheiro sai da API como número JSON, nunca string. O backend trabalha com
+# Decimal para não perder centavo, e algumas combinações de versão de
+# FastAPI/Pydantic serializam Decimal como string — o que quebra o frontend
+# (types/finance.ts declara number) e qualquer comparação numérica. Fixar o
+# encoder deixa o contrato independente da versão instalada.
+fastapi_encoders.ENCODERS_BY_TYPE[Decimal] = float
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -430,6 +438,19 @@ def decode_token_metadata(token: str) -> tuple[str | None, datetime | None]:
 
 
 def as_utc_datetime(value: Any) -> datetime | None:
+    """Normaliza para datetime em UTC, aceitando também texto ISO-8601.
+
+    As linhas passam por ``normalize_row``, que serializa datetime como string
+    ISO. Sem aceitar esse formato aqui, a função devolvia ``None`` para toda
+    coluna vinda do banco e as checagens que dependem dela eram silenciosamente
+    puladas: o token continuava válido após troca de senha e o bloqueio por
+    tentativas de login nunca era aplicado.
+    """
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
     if not isinstance(value, datetime):
         return None
     if value.tzinfo is None:

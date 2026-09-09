@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 
-from app.core.config import settings
+from app.core.secrets import resolve_jwt_secret
 
 logger = logging.getLogger("trevo.oauth")
 
@@ -203,7 +203,7 @@ def create_oauth_state(provider: str) -> str:
         "exp": now + OAUTH_STATE_TTL_SECONDS,
         "nonce": secrets.token_urlsafe(16),
     }
-    return jwt.encode(payload, settings.require_jwt_secret(), algorithm=OAUTH_STATE_ALG)
+    return jwt.encode(payload, resolve_jwt_secret(), algorithm=OAUTH_STATE_ALG)
 
 
 def consume_oauth_state(state: str, provider: str, cookie_state: str | None) -> None:
@@ -211,7 +211,7 @@ def consume_oauth_state(state: str, provider: str, cookie_state: str | None) -> 
     if not cookie_state or not secrets.compare_digest(state, cookie_state):
         raise HTTPException(status_code=400, detail="State OAuth inválido ou expirado.")
     try:
-        payload = jwt.decode(state, settings.require_jwt_secret(), algorithms=[OAUTH_STATE_ALG])
+        payload = jwt.decode(state, resolve_jwt_secret(), algorithms=[OAUTH_STATE_ALG])
     except JWTError:
         raise HTTPException(status_code=400, detail="State OAuth inválido ou expirado.") from None
     if payload.get("provider") != provider:

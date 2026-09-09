@@ -8,6 +8,7 @@ from jose import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.core.secrets import resolve_jwt_secret
 
 password_context = CryptContext(
     schemes=["bcrypt"],
@@ -71,4 +72,4 @@ def create_access_token(user_id: str) -> str:
     issued_at = datetime.now(UTC)
     expires_at = issued_at + timedelta(hours=settings.access_token_expire_hours)
     payload = {"sub": str(user_id), "iat": int(issued_at.timestamp()), "exp": int(expires_at.timestamp())}
-    return jwt.encode(payload, settings.require_jwt_secret(), algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, resolve_jwt_secret(), algorithm=settings.jwt_algorithm)

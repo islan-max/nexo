@@ -48,6 +48,7 @@ from app.core.database import (
     storage_available,
 )
 from app.core.logging import JsonLogFormatter
+from app.core.secrets import resolve_jwt_secret
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -238,10 +239,14 @@ async def lifespan(_app: FastAPI):
     # pool e migrar no cold start derrubaria a função inteira se faltasse env.
     # Lá as migrations rodam via ensure_serverless_schema, no primeiro request.
     if not settings.is_serverless:
-        validate_runtime_config()
+        # O pool e as migrations vêm antes da validação porque o segredo de
+        # assinatura pode ser provisionado na tabela app_secrets quando
+        # JWT_SECRET_KEY não está no ambiente.
+        get_database_url()
         init_db_pool()
         with connection() as conn:
             run_migrations(conn)
+        validate_runtime_config()
         logger.info("Startup completed")
     else:
         logger.info("Serverless mode: skipping startup validation, pool and migrations")
@@ -418,7 +423,7 @@ async def add_security_headers(request: Request, call_next):
 
 
 def get_jwt_secret() -> str:
-    return settings.require_jwt_secret()
+    return resolve_jwt_secret()
 
 
 def validate_runtime_config() -> None:

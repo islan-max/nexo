@@ -7,12 +7,21 @@ import { FeedbackMessage } from "@/components/FeedbackMessage";
 import { PageHeader } from "@/components/PageHeader";
 import { SectionIntro } from "@/components/SectionIntro";
 import { Shell } from "@/components/Shell";
+import { ImportConfirmDialog } from "@/components/ImportConfirmDialog";
 import { api } from "@/lib/api";
 import { formatBRL } from "@/lib/format";
 import { useAuthToken } from "@/lib/useAuthToken";
 import type { Category, CsvPreview, CsvUpload, Transaction } from "@/types/finance";
 
-type Mapping = { date: string; description: string; value: string; type?: string };
+type Mapping = {
+  date: string;
+  description: string;
+  value: string;
+  type: string;
+  category: string;
+  account: string;
+  time: string;
+};
 type ImportResult = { imported: number; duplicates: number; invalidRows: number; transactions: Transaction[] };
 type StepKey = "upload" | "mapping" | "preview" | "confirm" | "categorize";
 
@@ -32,11 +41,24 @@ function getStepIndex(upload: CsvUpload | null, preview: CsvPreview | null, resu
 }
 
 function guessMapping(columns: string[]): Mapping {
+  // A coluna de data não pode ser roubada por "data de vencimento" nem por uma
+  // coluna de hora; por isso cada padrão é testado na ordem do mais específico.
+  const find = (...patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = columns.find((column) => pattern.test(column));
+      if (match) return match;
+    }
+    return "";
+  };
+
   return {
-    date: columns.find((column) => /data|date/i.test(column)) || "",
-    description: columns.find((column) => /descr|hist|memo|desc/i.test(column)) || "",
-    value: columns.find((column) => /valor|amount|value/i.test(column)) || "",
-    type: columns.find((column) => /tipo|type/i.test(column)) || ""
+    date: find(/^data$/i, /data.*(lan[çc]|compra|movi|transa)/i, /\bdate\b/i, /data/i),
+    description: find(/descri/i, /hist[óo]ric/i, /memo/i, /detalhe/i, /desc/i),
+    value: find(/^valor$/i, /valor/i, /amount/i, /quantia/i, /value/i),
+    type: find(/^tipo$/i, /tipo.*(lan[çc]|transa|movi)/i, /natureza/i, /\btype\b/i),
+    category: find(/^categoria$/i, /categoria/i, /classific/i, /category/i),
+    account: find(/^conta$/i, /conta/i, /origem/i, /banco/i, /carteira/i, /account/i),
+    time: find(/^hora$/i, /hor[áa]rio/i, /\btime\b/i)
   };
 }
 
@@ -126,7 +148,8 @@ export default function ImportarPage() {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [mapping, setMapping] = useState<Mapping>({ date: "", description: "", value: "", type: "" });
+  const [mapping, setMapping] = useState<Mapping>({ date: "", description: "", value: "", type: "", category: "", account: "", time: "" });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedFileName, setSelectedFileName] = useState("");
   const [busyState, setBusyState] = useState<"upload" | "preview" | "confirm" | "rule" | "categorize" | "">("");
@@ -188,12 +211,23 @@ export default function ImportarPage() {
     }
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(mode: "merge" | "replace" = "merge") {
     if (!token || !upload || !preview || !mappingReady) return;
     setBusyState("confirm");
     setMessage("");
     try {
-      const result = await api.confirmCsv(token, { importToken: upload.importToken, mapping: { ...mapping, type: mapping.type || null } });
+      const result = await api.confirmCsv(token, {
+        importToken: upload.importToken,
+        mapping: {
+          ...mapping,
+          type: mapping.type || null,
+          category: mapping.category || null,
+          account: mapping.account || null,
+          time: mapping.time || null
+        },
+        mode
+      });
+      setConfirmOpen(false);
       setImportResult(result);
       setUpload(null);
       setPreview(null);
@@ -341,6 +375,9 @@ export default function ImportarPage() {
                   <SelectField label="Descrição" helper="Nome que aparecerá na movimentação" options={columns} required value={mapping.description} onChange={(description) => setMapping({ ...mapping, description })} />
                   <SelectField label="Valor" helper="Pode ser positivo ou negativo" options={columns} required value={mapping.value} onChange={(value) => setMapping({ ...mapping, value })} />
                   <SelectField label="Tipo, se existir" helper="Entrada, saída, crédito ou débito" options={columns} value={mapping.type || ""} onChange={(type) => setMapping({ ...mapping, type })} />
+                  <SelectField label="Categoria, se existir" helper="Casa com suas categorias pelo nome" options={columns} value={mapping.category || ""} onChange={(category) => setMapping({ ...mapping, category })} />
+                  <SelectField label="Conta ou origem, se existir" helper="Banco, carteira ou forma de pagamento" options={columns} value={mapping.account || ""} onChange={(account) => setMapping({ ...mapping, account })} />
+                  <SelectField label="Hora, se estiver em coluna separada" helper="Quando a data não traz o horário" options={columns} value={mapping.time || ""} onChange={(time) => setMapping({ ...mapping, time })} />
                 </div>
                 <button className="btn-primary mt-4" type="button" onClick={() => handlePreview().catch(console.error)} disabled={!mappingReady || busyState === "preview"}>
                   <ListChecks size={16} aria-hidden />
@@ -377,7 +414,26 @@ export default function ImportarPage() {
                       <div key={row.duplicateHash} className="flex items-center justify-between gap-3 p-3">
                         <div className="min-w-0">
                           <strong className="block truncate text-sm">{row.title}</strong>
-                          <span className="text-xs text-muted">{row.transactionDate} / mês {row.detectedMonth || row.transactionDate.slice(0, 7)} / linha {row.line} / {row.type === "income" ? "Entrada" : "Despesa"}</span>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted">
+                            <span>{new Date(`${row.transactionDate}T12:00:00`).toLocaleDateString("pt-BR")}</span>
+                            {row.time ? <span aria-label={`Hora ${row.time}`}>{row.time}</span> : null}
+                            <span aria-hidden>·</span>
+                            <span>{row.monthLabel || row.detectedMonth}</span>
+                            <span aria-hidden>·</span>
+                            <span className={row.type === "income" ? "text-success" : "text-danger"}>{row.type === "income" ? "Entrada" : "Despesa"}</span>
+                            {row.categoryName ? (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span className="rounded bg-surface-muted px-1.5 py-0.5">{row.categoryName}</span>
+                              </>
+                            ) : null}
+                            {row.account ? (
+                              <>
+                                <span aria-hidden>·</span>
+                                <span>{row.account}</span>
+                              </>
+                            ) : null}
+                          </span>
                         </div>
                         <span className={row.type === "income" ? "font-semibold text-success" : "font-semibold text-danger"}>{formatBRL(row.amount)}</span>
                       </div>
@@ -413,10 +469,10 @@ export default function ImportarPage() {
               </div>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button className="btn-primary" type="button" onClick={() => handleConfirm().catch(console.error)} disabled={busyState === "confirm" || importableRows <= 0}>
-                  {busyState === "confirm" ? "Importando..." : "Confirmar importação"}
+                <button className="btn-primary" type="button" onClick={() => setConfirmOpen(true)} disabled={busyState === "confirm" || importableRows <= 0}>
+                  Revisar e importar
                 </button>
-                <p className="text-sm text-muted">O Trevo vai ignorar duplicatas e linhas inválidas.</p>
+                <p className="text-sm text-muted">Você escolhe entre mesclar ou substituir antes de qualquer gravação.</p>
               </div>
             </>
           ) : (
@@ -495,6 +551,15 @@ export default function ImportarPage() {
           )}
         </section>
       </div>
+      <ImportConfirmDialog
+        busy={busyState === "confirm"}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={(mode) => {
+          handleConfirm(mode).catch(console.error);
+        }}
+        open={confirmOpen}
+        preview={preview}
+      />
     </Shell>
   );
 }

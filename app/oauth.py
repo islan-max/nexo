@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
@@ -38,24 +39,49 @@ def _env(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+# Origem da request em curso, preenchida pelas rotas de OAuth. Em deploy de
+# mesma origem (Vercel: front e API no mesmo domínio) ela é a fonte mais
+# confiável da URL pública — evita depender de env var que ninguém lembra de
+# atualizar quando o domínio muda.
+_request_origin: ContextVar[str] = ContextVar("oauth_request_origin", default="")
+
+
+def set_request_origin(origin: str) -> None:
+    _request_origin.set(origin.rstrip("/"))
+
+
 def oauth_redirect_base() -> str:
-    return _env("OAUTH_REDIRECT_BASE_URL").rstrip("/")
+    """Base pública da API, para montar o redirect_uri do provedor."""
+    explicit = _env("OAUTH_REDIRECT_BASE_URL").rstrip("/")
+    if explicit:
+        return explicit
+    return _request_origin.get()
 
 
 def oauth_frontend_callback_url() -> str:
+    """Para onde o usuário volta depois que o provedor responde.
+
+    Antes, sem OAUTH_FRONTEND_CALLBACK_URL nem ALLOWED_ORIGINS, isto caía em
+    ``http://localhost:3000`` — em produção o login social terminava jogando o
+    usuário para a máquina dele. Em deploy de mesma origem o destino certo é a
+    própria origem da request.
+    """
     explicit = _env("OAUTH_FRONTEND_CALLBACK_URL").rstrip("/")
     if explicit:
         return explicit
     origins = [origin.strip() for origin in _env("ALLOWED_ORIGINS").split(",") if origin.strip()]
     if origins:
         return f"{origins[0].rstrip('/')}/oauth/callback"
+    origin = _request_origin.get()
+    if origin:
+        return f"{origin}/oauth/callback"
     return "http://localhost:3000/oauth/callback"
 
 
 def provider_callback_url(provider: str) -> str:
     base = oauth_redirect_base()
     if not base:
-        raise HTTPException(status_code=503, detail="OAuth não configurado (OAUTH_REDIRECT_BASE_URL ausente).")
+        raise HTTPException(status_code=503, detail="OAuth não configurado (origem indisponível).")
     return f"{base}/api/auth/oauth/{provider}/callback"
 
 

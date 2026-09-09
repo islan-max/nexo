@@ -24,6 +24,15 @@
   --brand-gold: #D9A441;
   --brand-ring: 31 128 73;
 
+  --btn-primary-bg-from: #2E9D5B;
+  --btn-primary-bg-to: #19653B;
+  --btn-primary-fg: #FFFFFF;
+
+  --hero-from: #14502F;
+  --hero-via: #103F27;
+  --hero-to: #1F8049;
+  --hero-fg: 255 255 255;
+
   --shadow-ink: 16 40 26;
   --shadow-soft-opacity: 0.08;
   --shadow-lift-opacity: 0.15;
@@ -45,14 +54,16 @@
 }
 
 :root[data-theme="dark"] {
-  --color-ink: 232 242 233;
-  --color-paper: 10 19 16;
-  --color-surface: 18 32 26;
-  --color-surface-muted: 28 46 36;
-  --color-muted: 156 179 162;
-  --color-line: 46 68 55;
-  --color-line-strong: 74 105 85;
-  --color-success: 111 214 150;
+  /* Dark neutro: cinzas levemente frios como base, verde só como acento.
+     A versão anterior tingia tudo de verde e cansava a leitura. */
+  --color-ink: 232 235 238;
+  --color-paper: 12 14 16;
+  --color-surface: 22 25 28;
+  --color-surface-muted: 30 34 38;
+  --color-muted: 162 170 179;
+  --color-line: 42 47 53;
+  --color-line-strong: 66 74 82;
+  --color-success: 90 200 130;
   --color-danger: 255 138 152;
   --color-warning: 240 197 116;
   --color-info: 127 184 221;
@@ -61,18 +72,32 @@
   --brand-leaf-light: #8BD9A8;
   --brand-stem: #2E9D5B;
   --brand-gold: #E8BE6A;
-  --brand-ring: 111 214 150;
+  --brand-ring: 79 184 119;
+
+  /* Verde claro não tem contraste com branco (2.5:1); no dark o botão
+     primário inverte para texto escuro sobre o verde (7.8:1). */
+  --btn-primary-bg-from: #4FB877;
+  --btn-primary-bg-to: #2E9D5B;
+  --btn-primary-fg: #0C0E10;
+
+  /* Superfície do card de destaque: escura nos dois temas, porque o texto
+     dela é sempre branco. Antes usava `via-ink`, que no dark virava quase
+     branco e apagava o conteúdo. */
+  --hero-from: #12271C;
+  --hero-via: #0F1A15;
+  --hero-to: #1B4732;
+  --hero-fg: 255 255 255;
 
   --shadow-ink: 0 0 0;
-  --shadow-soft-opacity: 0.24;
-  --shadow-lift-opacity: 0.38;
-  --body-bg-start: 12 24 19;
-  --body-bg-end: 8 15 12;
-  --body-glow: 47 157 91;
-  --body-glow-alt: 217 164 65;
-  --surface-alpha: 0.94;
-  --control-alpha: 0.98;
-  --focus-offset: 8 18 14;
+  --shadow-soft-opacity: 0.32;
+  --shadow-lift-opacity: 0.46;
+  --body-bg-start: 14 16 19;
+  --body-bg-end: 10 12 14;
+  --body-glow: 79 184 119;
+  --body-glow-alt: 127 140 160;
+  --surface-alpha: 0.96;
+  --control-alpha: 1;
+  --focus-offset: 12 14 16;
   color-scheme: dark;
   background: rgb(var(--color-paper));
   color: rgb(var(--color-ink));
@@ -81,7 +106,7 @@
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgb(var(--body-glow) / 0.18), transparent 34rem),
+    radial-gradient(circle at top left, rgb(var(--body-glow) / 0.12), transparent 34rem),
     radial-gradient(circle at bottom right, rgb(var(--body-glow-alt) / 0.12), transparent 28rem),
     linear-gradient(180deg, rgb(var(--body-bg-start)) 0%, rgb(var(--body-bg-end)) 100%);
   color: rgb(var(--color-ink));
@@ -147,7 +172,9 @@ textarea {
 }
 
 .btn-primary {
-  @apply focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-app bg-gradient-to-br from-leaf via-leaf-500 to-leaf-700 px-4 py-2 text-sm font-semibold text-white shadow-soft transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60;
+  @apply focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-app px-4 py-2 text-sm font-semibold shadow-soft transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60;
+  background-image: linear-gradient(135deg, var(--btn-primary-bg-from), var(--btn-primary-bg-to));
+  color: var(--btn-primary-fg);
 }
 
 .btn-primary:hover {
@@ -555,4 +582,17 @@ input[type="radio"] {
   .interactive-list-item:active {
     transform: none;
   }
+}
+
+
+/* Card de destaque do Resumo: fundo sempre escuro, texto sempre branco. */
+.hero-card {
+  background-image: linear-gradient(135deg, var(--hero-from) 0%, var(--hero-via) 52%, var(--hero-to) 100%);
+  color: rgb(var(--hero-fg));
+}
+
+/* Foco visível em qualquer superfície, inclusive dentro do hero. */
+.hero-card :focus-visible {
+  outline: 2px solid rgb(var(--hero-fg) / 0.9);
+  outline-offset: 2px;
 }

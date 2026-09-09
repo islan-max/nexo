@@ -211,6 +211,28 @@ export type CsvUpload = {
   preview: Array<Record<string, string>>;
 };
 
+export type CsvPreviewRow = {
+  line: number;
+  transactionDate: string;
+  detectedMonth?: string;
+  monthLabel?: string;
+  year?: number;
+  monthNumber?: number;
+  day?: number;
+  time?: string | null;
+  title: string;
+  rawDescription?: string;
+  amount: number;
+  type: TransactionType;
+  categoryId?: number | null;
+  categoryName?: string | null;
+  account?: string | null;
+  duplicateHash: string;
+  legacyDuplicateHash?: string;
+};
+
+export type CsvImportMode = "merge" | "replace";
+
 export type CsvPreview = {
   importToken: string;
   columns: string[];
@@ -218,26 +240,12 @@ export type CsvPreview = {
   validRows: number;
   invalidRows: number;
   duplicateRows: number;
-  duplicates: Array<{
-    line: number;
-    transactionDate: string;
-    detectedMonth?: string;
-    title: string;
-    amount: number;
-    type: TransactionType;
-    duplicateHash: string;
-    legacyDuplicateHash?: string;
-  }>;
-  preview: Array<{
-    line: number;
-    transactionDate: string;
-    detectedMonth?: string;
-    title: string;
-    amount: number;
-    type: TransactionType;
-    duplicateHash: string;
-    legacyDuplicateHash?: string;
-  }>;
+  duplicates: CsvPreviewRow[];
+  preview: CsvPreviewRow[];
+  months: Array<{ month: string; label: string }>;
+  totalAmount: number;
+  /** Lançamentos que já existem nos meses do arquivo — o que "substituir" apaga. */
+  existingInMonths: number;
   errors: Array<{ line: number; detail: string }>;
 };
 

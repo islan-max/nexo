@@ -92,3 +92,39 @@ async def test_oauth_callback_invalid_state_redirects(monkeypatch):
     assert response.status_code == 302
     assert "error=" in response.headers["location"]
     assert "trevo_oauth_state=" in response.headers["set-cookie"]
+
+
+def test_frontend_callback_uses_request_origin(monkeypatch):
+    """Sem env vars, o retorno vai para a própria origem — não para localhost.
+
+    Regressão: em produção de mesma origem (ALLOWED_ORIGINS vazio) o fallback
+    mandava o usuário para http://localhost:3000 depois de logar no provedor.
+    """
+    from app import oauth as oauth_module
+
+    monkeypatch.delenv("OAUTH_FRONTEND_CALLBACK_URL", raising=False)
+    monkeypatch.setenv("ALLOWED_ORIGINS", "")
+    oauth_module.set_request_origin("https://trevo-finance.vercel.app/")
+
+    assert oauth_module.oauth_frontend_callback_url() == "https://trevo-finance.vercel.app/oauth/callback"
+
+
+def test_provider_callback_uses_request_origin(monkeypatch):
+    from app import oauth as oauth_module
+
+    monkeypatch.delenv("OAUTH_REDIRECT_BASE_URL", raising=False)
+    oauth_module.set_request_origin("https://trevo-finance.vercel.app/")
+
+    assert (
+        oauth_module.provider_callback_url("google")
+        == "https://trevo-finance.vercel.app/api/auth/oauth/google/callback"
+    )
+
+
+def test_explicit_env_still_wins(monkeypatch):
+    from app import oauth as oauth_module
+
+    monkeypatch.setenv("OAUTH_FRONTEND_CALLBACK_URL", "https://app.exemplo.com/oauth/callback")
+    oauth_module.set_request_origin("https://outra-origem.test/")
+
+    assert oauth_module.oauth_frontend_callback_url() == "https://app.exemplo.com/oauth/callback"

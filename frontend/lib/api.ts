@@ -3,6 +3,7 @@ import type {
   BudgetSummary,
   Card,
   Category,
+  CsvImportMode,
   CsvPreview,
   CsvUpload,
   Goal,
@@ -363,11 +364,11 @@ export const api = {
     form.set("file", file);
     return request<CsvUpload>("/api/imports/csv/upload", { method: "POST", token, body: form });
   },
-  previewCsv(token: string, payload: { importToken: string; mapping: { date: string; description: string; value: string; type?: string | null } }) {
+  previewCsv(token: string, payload: { importToken: string; mapping: { date: string; description: string; value: string; type?: string | null; category?: string | null; account?: string | null; time?: string | null } }) {
     return request<CsvPreview>("/api/imports/csv/preview", { method: "POST", token, body: JSON.stringify(payload) });
   },
-  confirmCsv(token: string, payload: { importToken: string; mapping: { date: string; description: string; value: string; type?: string | null } }) {
-    return request<{ imported: number; duplicates: number; invalidRows: number; transactions: Transaction[] }>("/api/imports/csv/confirm", {
+  confirmCsv(token: string, payload: { importToken: string; mapping: { date: string; description: string; value: string; type?: string | null; category?: string | null; account?: string | null; time?: string | null }; mode: CsvImportMode }) {
+    return request<{ imported: number; duplicates: number; invalidRows: number; replaced: number; mode: CsvImportMode; months: Array<{ month: string; label: string }>; transactions: Transaction[] }>("/api/imports/csv/confirm", {
       method: "POST",
       token,
       body: JSON.stringify(payload)

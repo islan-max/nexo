@@ -72,6 +72,7 @@ from app.oauth import (
     fetch_oauth_profile,
     frontend_redirect,
     list_providers,
+    set_request_origin,
 )
 from app.privacy.service import (
     POLICY_VERSION,
@@ -473,14 +474,58 @@ def as_utc_datetime(value: Any) -> datetime | None:
     return value.astimezone(UTC)
 
 
-def parse_import_date(value: Any) -> str:
+# Formatos aceitos na importação. Data e data+hora são tentadas na ordem; o
+# extrato de cada banco escolhe um destes.
+_IMPORT_DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d.%m.%Y")
+_IMPORT_DATETIME_FORMATS = tuple(
+    f"{date_format}{separator}{time_format}"
+    for date_format in _IMPORT_DATE_FORMATS
+    for separator in (" ", "T")
+    for time_format in ("%H:%M:%S", "%H:%M")
+)
+
+
+def parse_import_datetime(value: Any) -> tuple[str, str | None]:
+    """Normaliza a data do extrato para (AAAA-MM-DD, HH:MM ou None).
+
+    Bancos exportam data com e sem hora, em vários separadores. Guardar a hora
+    quando ela existe permite ordenar lançamentos do mesmo dia na ordem real.
+    """
     text = str(value or "").strip()
-    for date_format in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+    if not text:
+        raise ValueError("Data vazia.")
+
+    for date_format in _IMPORT_DATETIME_FORMATS:
         try:
-            return datetime.strptime(text, date_format).date().isoformat()
+            parsed = datetime.strptime(text, date_format)
         except ValueError:
             continue
+        return parsed.date().isoformat(), parsed.strftime("%H:%M")
+
+    for date_format in _IMPORT_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, date_format).date().isoformat(), None
+        except ValueError:
+            continue
+
     raise ValueError("Data inválida.")
+
+
+def parse_import_date(value: Any) -> str:
+    return parse_import_datetime(value)[0]
+
+
+def parse_import_time(value: Any) -> str | None:
+    """Lê uma coluna de hora separada, quando o arquivo tiver uma."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for time_format in ("%H:%M:%S", "%H:%M", "%H%M"):
+        try:
+            return datetime.strptime(text, time_format).strftime("%H:%M")
+        except ValueError:
+            continue
+    return None
 
 
 def parse_import_type(raw_type: Any, amount: Decimal) -> Literal["income", "expense"]:
@@ -2718,6 +2763,11 @@ class CsvColumnMapping(BaseModel):
     description: str = Field(..., min_length=1, max_length=120)
     value: str = Field(..., min_length=1, max_length=120)
     type: str | None = Field(default=None, max_length=120)
+    # Opcionais: quando o arquivo traz a categoria e a conta/origem, elas são
+    # aproveitadas em vez de todo lançamento cair em "sem categoria".
+    category: str | None = Field(default=None, max_length=120)
+    account: str | None = Field(default=None, max_length=120)
+    time: str | None = Field(default=None, max_length=120)
 
     class Config:
         extra = "forbid"
@@ -2732,7 +2782,9 @@ class CsvImportPreviewPayload(BaseModel):
 
 
 class CsvImportConfirmPayload(CsvImportPreviewPayload):
-    pass
+    # "merge" mantém o que já existe e ignora duplicatas; "replace" troca os
+    # lançamentos dos meses presentes no arquivo. O default é o modo seguro.
+    mode: Literal["merge", "replace"] = "merge"
 
 
 class PinPayload(BaseModel):
@@ -2824,8 +2876,9 @@ class CardUpdatePayload(BaseModel):
 
 def validate_csv_mapping(columns: list[str], mapping: CsvColumnMapping) -> None:
     required = [mapping.date, mapping.description, mapping.value]
-    if mapping.type:
-        required.append(mapping.type)
+    for optional in (mapping.type, mapping.category, mapping.account, mapping.time):
+        if optional:
+            required.append(optional)
     missing = [column for column in required if column not in columns]
     if missing:
         raise HTTPException(status_code=400, detail=f"Colunas não encontradas: {', '.join(missing)}.")
@@ -2874,6 +2927,26 @@ def cleanup_csv_import_sessions() -> None:
             csv_import_sessions.pop(token, None)
 
 
+def resolve_import_category(user_id: str, raw_name, description: str) -> tuple[int | None, str | None]:
+    """Descobre a categoria de uma linha do extrato.
+
+    Primeiro tenta o nome que veio no arquivo (casando por nome normalizado com
+    as categorias do usuario); se nao houver coluna de categoria ou o nome nao
+    casar, cai nas regras de categorizacao ja cadastradas.
+    """
+    name = str(raw_name or "").strip()
+    if name:
+        wanted = normalize_duplicate_text(name)
+        for category in list_categories(user_id):
+            if normalize_duplicate_text(str(category["name"])) == wanted:
+                return int(category["id"]), str(category["name"])
+
+    rule = match_categorization_rule(user_id, description)
+    if rule:
+        return int(rule["category_id"]), rule.get("category_name")
+    return None, name or None
+
+
 def build_csv_import_preview(user_id: str, session: dict, mapping: CsvColumnMapping) -> dict:
     validate_csv_mapping(session["columns"], mapping)
 
@@ -2882,13 +2955,22 @@ def build_csv_import_preview(user_id: str, session: dict, mapping: CsvColumnMapp
     duplicate_rows: list[dict] = []
     for index, row in enumerate(session["rows"], start=1):
         try:
-            transaction_date = parse_import_date(row.get(mapping.date))
+            transaction_date, parsed_time = parse_import_datetime(row.get(mapping.date))
+            if mapping.time:
+                parsed_time = parse_import_time(row.get(mapping.time)) or parsed_time
             description = clean_text(row.get(mapping.description, ""), "Descrição", 200)
             signed_amount = parse_decimal_text(row.get(mapping.value))
             transaction_type = parse_import_type(row.get(mapping.type) if mapping.type else None, signed_amount)
             amount = round_money(abs(signed_amount))
             if amount <= 0:
                 raise ValueError("Valor precisa ser maior que zero.")
+            category_id, category_name = resolve_import_category(
+                user_id, row.get(mapping.category) if mapping.category else None, description
+            )
+            account = (
+                clean_text(row.get(mapping.account, ""), "Conta", 120, required=False) if mapping.account else None
+            )
+            year, month_number, day = (int(part) for part in transaction_date.split("-"))
             duplicate_hash = build_duplicate_hash(user_id, transaction_date, description, amount, transaction_type)
             legacy_duplicate_hash = build_duplicate_hash(user_id, transaction_date, description, amount)
             parsed_rows.append(
@@ -2896,10 +2978,18 @@ def build_csv_import_preview(user_id: str, session: dict, mapping: CsvColumnMapp
                     "line": index,
                     "transactionDate": transaction_date,
                     "detectedMonth": month_key_from_date(transaction_date),
+                    "monthLabel": format_month_label(month_key_from_date(transaction_date)),
+                    "year": year,
+                    "monthNumber": month_number,
+                    "day": day,
+                    "time": parsed_time,
                     "title": description,
                     "rawDescription": row.get(mapping.description, ""),
                     "amount": amount,
                     "type": transaction_type,
+                    "categoryId": category_id,
+                    "categoryName": category_name,
+                    "account": account,
                     "duplicateHash": duplicate_hash,
                     "legacyDuplicateHash": legacy_duplicate_hash,
                 }
@@ -2933,6 +3023,29 @@ def build_csv_import_preview(user_id: str, session: dict, mapping: CsvColumnMapp
             if row["duplicateHash"] in existing_hashes or row.get("legacyDuplicateHash") in existing_hashes
         ]
 
+    # Ordem cronologica (e por hora, quando existe) para o preview refletir o
+    # extrato de verdade, em vez da ordem crua do arquivo.
+    parsed_rows.sort(key=lambda item: (item["transactionDate"], item["time"] or "", item["line"]))
+
+    months = sorted({row["detectedMonth"] for row in parsed_rows})
+    months_summary = [{"month": month, "label": format_month_label(month)} for month in months]
+    existing_in_months = 0
+    if months:
+        with db_cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM transactions
+                WHERE user_id = %s
+                  AND COALESCE(billing_month, substring(transaction_date from 1 for 7)) = ANY(%s)
+                """,
+                (user_id, months),
+            )
+            existing_in_months = int(
+                require_row(normalize_row(cursor.fetchone()), "Totais nao encontrados.")["total"]
+            )
+
+    total_amount = round_money(sum((row["amount"] for row in parsed_rows), Decimal("0")))
     return {
         "importToken": session["token"],
         "columns": session["columns"],
@@ -2943,6 +3056,11 @@ def build_csv_import_preview(user_id: str, session: dict, mapping: CsvColumnMapp
         "duplicates": duplicate_rows[:CSV_IMPORT_PREVIEW_LIMIT],
         "preview": parsed_rows[:CSV_IMPORT_PREVIEW_LIMIT],
         "errors": errors_list[:CSV_IMPORT_PREVIEW_LIMIT],
+        "months": months_summary,
+        "totalAmount": total_amount,
+        # Quantos lancamentos ja existem nos meses do arquivo: e exatamente o
+        # que o modo "substituir" apaga, e o modal precisa avisar antes.
+        "existingInMonths": existing_in_months,
         "rows": parsed_rows,
     }
 
@@ -3024,19 +3142,22 @@ def register(request: Request, response: Response, payload: RegisterPayload) -> 
 
 
 @app.get("/api/auth/oauth/providers")
-def oauth_providers() -> dict:
+def oauth_providers(request: Request) -> dict:
+    set_request_origin(str(request.base_url))
     return {"providers": list_providers()}
 
 
 @app.get("/api/auth/oauth/{provider}/authorize")
-def oauth_authorize(provider: str) -> RedirectResponse:
+def oauth_authorize(provider: str, request: Request) -> RedirectResponse:
     if provider not in OAUTH_PROVIDERS:
         raise HTTPException(status_code=404, detail="Provedor OAuth não suportado.")
+    set_request_origin(str(request.base_url))
     return build_authorize_redirect(provider)
 
 
 @app.get("/api/auth/oauth/{provider}/callback")
 def oauth_callback(
+    request: Request,
     provider: str,
     code: str | None = None,
     state: str | None = None,
@@ -3044,6 +3165,8 @@ def oauth_callback(
     error_description: str | None = None,
     oauth_state_cookie: str | None = Cookie(default=None, alias=OAUTH_STATE_COOKIE),
 ) -> RedirectResponse:
+    set_request_origin(str(request.base_url))
+
     def redirect_and_clear(*, access_token: str | None = None, error_message: str | None = None) -> RedirectResponse:
         response = frontend_redirect(access_token=access_token, error=error_message)
         response.delete_cookie(OAUTH_STATE_COOKIE, path="/api/auth/oauth")
@@ -3466,8 +3589,28 @@ def confirm_csv_import(payload: CsvImportConfirmPayload, current_user: dict = De
 
     imported: list[dict] = []
     duplicates: list[dict] = []
+    replaced = 0
+    months = [entry["month"] for entry in preview["months"]]
+
     with db_cursor(commit=True) as cursor:
+        if payload.mode == "replace" and months:
+            # Substituir troca os lançamentos dos meses presentes no arquivo —
+            # e só deles. Meses fora do CSV ficam intactos, senão uma
+            # importação de um mês apagaria o histórico inteiro.
+            cursor.execute(
+                """
+                DELETE FROM transactions
+                WHERE user_id = %s
+                  AND COALESCE(billing_month, substring(transaction_date from 1 for 7)) = ANY(%s)
+                """,
+                (user_id, months),
+            )
+            replaced = cursor.rowcount or 0
+            audit_log("csv_import_replace", user_id, {"months": months, "deleted": replaced})
+
         for row in preview["rows"]:
+            # Em "replace" os meses já foram limpos, então o único choque
+            # possível é dentro do próprio arquivo (duas linhas idênticas).
             cursor.execute(
                 """
                 SELECT id
@@ -3484,16 +3627,16 @@ def confirm_csv_import(payload: CsvImportConfirmPayload, current_user: dict = De
                 duplicates.append(row)
                 continue
 
-            rule = match_categorization_rule(user_id, row["title"])
-            category_id = rule["category_id"] if rule else None
-            payment_method = rule.get("payment_method") if rule and rule.get("payment_method") else "csv_import"
+            category_id = row.get("categoryId")
+            payment_method = row.get("account") or "csv_import"
+            notes = f"Importado às {row['time']}" if row.get("time") else ""
             cursor.execute(
                 """
                 INSERT INTO transactions
                   (user_id, title, amount, type, category_id, payment_method, transaction_date, notes, card_id,
                    billing_month, installment_group, installment_number, total_installments, source, external_id,
                    imported_at, raw_description, duplicate_hash)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, '', NULL, NULL, NULL, NULL, NULL,
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL, %s, NULL, NULL, NULL,
                         'csv_import', %s, NOW(), %s, %s)
                 RETURNING *
                 """,
@@ -3503,8 +3646,10 @@ def confirm_csv_import(payload: CsvImportConfirmPayload, current_user: dict = De
                     row["amount"],
                     row["type"],
                     category_id,
-                    payment_method,
+                    payment_method[:50],
                     row["transactionDate"],
+                    notes,
+                    row["detectedMonth"],
                     row["duplicateHash"],
                     row["rawDescription"],
                     row["duplicateHash"],
@@ -3519,10 +3664,18 @@ def confirm_csv_import(payload: CsvImportConfirmPayload, current_user: dict = De
                 "DELETE FROM csv_import_sessions_state WHERE token_hash = %s AND user_id = %s",
                 (token_hash(payload.importToken), user_id),
             )
+    audit_log(
+        "csv_import_confirmed",
+        user_id,
+        {"mode": payload.mode, "imported": len(imported), "duplicates": len(duplicates), "replaced": replaced},
+    )
     return {
         "imported": len(imported),
         "duplicates": len(duplicates),
         "invalidRows": preview["invalidRows"],
+        "replaced": replaced,
+        "mode": payload.mode,
+        "months": preview["months"],
         "transactions": imported,
     }
 

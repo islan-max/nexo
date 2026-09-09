@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 
-from app.core.secrets import resolve_jwt_secret
+from app.core.signing import resolve_jwt_secret
 
 logger = logging.getLogger("trevo.oauth")
 

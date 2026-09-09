@@ -8,7 +8,7 @@ from jose import jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
-from app.core.secrets import resolve_jwt_secret
+from app.core.signing import resolve_jwt_secret
 
 password_context = CryptContext(
     schemes=["bcrypt"],

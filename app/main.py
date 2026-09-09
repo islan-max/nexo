@@ -48,7 +48,6 @@ from app.core.database import (
     storage_available,
 )
 from app.core.logging import JsonLogFormatter
-from app.core.secrets import resolve_jwt_secret
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
@@ -60,6 +59,7 @@ from app.core.security import (
     verify_password,
     verify_pin,
 )
+from app.core.signing import resolve_jwt_secret
 from app.integrations.normalizer import (
     build_duplicate_hash,
     normalize_duplicate_text,

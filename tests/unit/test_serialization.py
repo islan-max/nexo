@@ -47,15 +47,39 @@ def test_as_utc_datetime_rejeita_lixo():
     assert as_utc_datetime(12345) is None
 
 
-def test_app_expoe_contrato_de_dinheiro_em_rota_real():
-    app = FastAPI()
+def test_rota_anotada_devolve_dinheiro_como_numero():
+    """O caso que realmente quebrou em produção.
 
-    @app.get("/valor")
-    def valor():
-        return {"total": Decimal("2500.00")}
-
+    Anotar `-> dict` faz o FastAPI promover a anotação a response_model, e sob
+    Pydantic v2 isso serializa Decimal como string. A route_class do app dispensa
+    o response_model justamente para manter o contrato numérico — este teste
+    monta uma rota com a mesma configuração do app real.
+    """
     from fastapi.testclient import TestClient
 
-    body = TestClient(app).get("/valor").json()
+    app = FastAPI()
+    app.router.route_class = main_module.PlainDictRoute
+
+    @app.get("/valor")
+    def valor() -> dict:
+        return {"total": Decimal("2500.00")}
+
+    @app.get("/lista")
+    def lista() -> list[dict]:
+        return [{"amount": Decimal("125.50")}]
+
+    client = TestClient(app)
+    body = client.get("/valor").json()
     assert body["total"] == 2500
     assert not isinstance(body["total"], str)
+
+    linhas = client.get("/lista").json()
+    assert linhas[0]["amount"] == 125.5
+    assert not isinstance(linhas[0]["amount"], str)
+
+
+def test_rotas_do_app_usam_a_route_class_sem_response_model():
+    """Garante que nenhuma rota volte a herdar response_model da anotação."""
+    monetarias = [r for r in main_module.app.routes if getattr(r, "path", "").startswith("/api/")]
+    assert monetarias, "nenhuma rota /api/ encontrada"
+    assert all(getattr(r, "response_model", None) is None for r in monetarias)

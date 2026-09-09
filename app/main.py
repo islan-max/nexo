@@ -21,10 +21,10 @@ from uuid import UUID
 
 from dotenv import load_dotenv
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
-from fastapi import encoders as fastapi_encoders
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
@@ -169,12 +169,21 @@ def audit_log(event: str, user_id: str | None, details: dict | None = None) -> N
     logger.info(json.dumps(entry))
 
 
-# Dinheiro sai da API como número JSON, nunca string. O backend trabalha com
-# Decimal para não perder centavo, e algumas combinações de versão de
-# FastAPI/Pydantic serializam Decimal como string — o que quebra o frontend
-# (types/finance.ts declara number) e qualquer comparação numérica. Fixar o
-# encoder deixa o contrato independente da versão instalada.
-fastapi_encoders.ENCODERS_BY_TYPE[Decimal] = float
+# Dinheiro sai da API como número JSON, nunca string.
+#
+# As rotas anotam `-> dict` / `-> list[dict]`, e o FastAPI promove a anotação de
+# retorno a response_model. Sob Pydantic v2 isso muda o serializador: Decimal
+# passa a virar string ("2500.00" em vez de 2500). O frontend declara esses
+# campos como number, então todo valor monetário chegava quebrado.
+#
+# As anotações são genéricas (dict), ou seja, não validam nada de útil — a
+# resposta é montada à mão. Dispensar o response_model devolve o encoder padrão
+# do FastAPI, que serializa Decimal como float.
+class PlainDictRoute(APIRoute):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["response_model"] = None
+        super().__init__(*args, **kwargs)
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 limiter = Limiter(key_func=get_remote_address)
@@ -244,6 +253,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Trevo API", version="2.0.0", lifespan=lifespan)
+app.router.route_class = PlainDictRoute
 app.state.limiter = limiter
 if not settings.is_serverless:
     app.mount(PROFILE_PHOTO_URL_PREFIX, StaticFiles(directory=PROFILE_PHOTO_DIR), name="profile-photos")

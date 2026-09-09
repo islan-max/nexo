@@ -117,6 +117,9 @@ async def test_initial_backend_flow_and_user_isolation(client):
     assert isolated_response.status_code == 200
     assert isolated_response.json()["transactions"] == []
 
+    # O cliente é de sessão e guarda o cookie de login emitido nos passos acima;
+    # sem limpar, "sem Authorization" ainda chega autenticado por cookie.
+    client.cookies.clear()
     protected_response = await client.get("/api/bootstrap?month=2024-05")
     assert protected_response.status_code == 401
 

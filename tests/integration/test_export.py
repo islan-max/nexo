@@ -138,7 +138,7 @@ async def test_csv_and_pdf_exports(client, auth_headers):
         "Data;Tipo;Nome;Categoria;Forma de pagamento;Valor;Origem;Observa\u00e7\u00f5es;Parcela"
     )
     assert "2024-05-10;Despesa;Mercado maio;Alimenta\u00e7\u00e3o;Cr\u00e9dito;150,00;Manual;Compra mensal;" in csv_text
-    assert "2024-05-20;Despesa;'=Formula maio;Alimenta\u00e7\u00e3o;PIX;10,00;Manual;'@nota sensivel;" in csv_text
+    assert "2024-05-20;Despesa;'=Formula maio;Alimenta\u00e7\u00e3o;Pix;10,00;Manual;'@nota sensivel;" in csv_text
 
     pdf_response = await client.get("/api/export/pdf?month=2024-05", headers=auth_headers)
     assert pdf_response.status_code == 200

@@ -1879,8 +1879,11 @@ def _compute_goals(user_id: str, month: str) -> dict:
     available_budget = round_money(monthly_income + inflow - reserve_amount)
     recommended_daily_goal = round_money(available_budget / Decimal(total_days)) if available_budget > 0 else Decimal("0.00")
     target_daily_goal = legacy_daily_goal if legacy_daily_goal > 0 else recommended_daily_goal
-    current_average_spend = round_money(outflow_to_today / Decimal(progress_day)) if progress_day > 0 else Decimal("0.00")
-    projected_closing = round_money(current_average_spend * Decimal(total_days))
+    # A média fica sem arredondar para projetar; arredondar antes de multiplicar
+    # pelos dias do mês espalhava o erro (900 gastos em 31 dias projetavam 899,93).
+    average_spend_raw = (outflow_to_today / Decimal(progress_day)) if progress_day > 0 else Decimal("0")
+    current_average_spend = round_money(average_spend_raw)
+    projected_closing = round_money(average_spend_raw * Decimal(total_days))
     allowed_remaining = round_money(available_budget - outflow_to_today)
 
     if available_budget <= 0 and projected_closing > 0:

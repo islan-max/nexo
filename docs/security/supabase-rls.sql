@@ -1,4 +1,4 @@
--- Supabase RLS reference for Pulsar.
+-- Supabase RLS reference for Trevo.
 -- Apply only after mapping app users to Supabase auth.uid() or storing the
 -- application user id in a trusted JWT claim. Review before production.
 
@@ -14,7 +14,7 @@ ALTER TABLE csv_import_sessions_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE card_unlock_sessions_state ENABLE ROW LEVEL SECURITY;
 
 -- Helper idea:
--- Replace auth.uid() with the trusted claim if Pulsar user ids are not equal
+-- Replace auth.uid() with the trusted claim if Trevo user ids are not equal
 -- to Supabase auth user ids.
 
 CREATE POLICY users_self_select ON users
